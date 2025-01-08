@@ -3,20 +3,19 @@
 main:
 	pushq %rbp
 	movq %rsp, %rbp
-	subq $8, %rsp
-	leaq L0, %rax
-	movq %rax, -8(%rbp)
-	movq -8(%rbp), %rax
+	jmp error
 	movq %rax, %rsi
-	leaq fmt_str, %rdi
+	leaq fmt_int, %rdi
 	movq $0, %rax
 	call printf
 	movq $0, %rax
 	leave
 	ret
+error:
+	leave
+	movq $1, %rax
+	ret
 	.data
-L0:
-	.string "foo"
 fmt_int:
 	.string "%d\n"
 fmt_str:

@@ -101,7 +101,7 @@ let rec compile_expr = function
             | _ -> failwith "Type error: cannot perform operation on strings")
        | TEcst (Cint _), TEcst (Cstring _)
        | TEcst (Cstring _), TEcst (Cint _) ->
-           failwith "Type error: cannot add integer and string"
+           jmp "error"  (* Exit the program if there is a type error *)
        | _ ->
            (match op with
             | Band -> 
@@ -399,7 +399,12 @@ let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
   debug := b;
   let text_section = 
     globl "main" ++ 
-    List.fold_left (++) nop (List.map compile_def p) in
+    List.fold_left (++) nop (List.map compile_def p) ++
+    label "error" ++
+    leave ++
+    movq (imm 1) !%rax ++
+    ret
+    in
   let data_section = 
     List.fold_left (fun acc (lbl, str) -> acc ++ X86_64.label lbl ++ string str) nop !string_constants ++
     X86_64.label "fmt_int" ++
