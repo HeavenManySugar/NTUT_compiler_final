@@ -14,21 +14,14 @@ let new_label () =
 
 let string_constants = ref []
 
-let compile_constant = function
-  | Cnone -> 0L
-  | Cbool true -> 1L
-  | Cbool false -> 0L
-  | Cstring s -> 1L
-  | Cint i -> i
-
 (* Define a stack to keep track of symbol tables for each scope *)
-let var_table_stack = Stack.create ()
+let var_table_stack : (string, int) Hashtbl.t Stack.t  = Stack.create ()
 let () = Stack.push (Hashtbl.create 100) var_table_stack
 
 (* Function to record variable name, type, and stack offset *)
-let record_var_name var_name var_type var_ofs =
+let record_var_name var_name var_ofs =
   let current_var_table = Stack.top var_table_stack in
-  Hashtbl.replace current_var_table var_name (var_type, var_ofs)
+  Hashtbl.replace current_var_table var_name var_ofs
 
 let stack_offset_stack = Stack.create ()
 let () = Stack.push 0 stack_offset_stack
@@ -52,33 +45,46 @@ let exit_scope () =
 let calculate_stack_offset var =
   let current_var_table = Stack.top var_table_stack in
   match Hashtbl.find_opt current_var_table var.v_name with
-  | Some (_, existing_offset) -> existing_offset
+  | Some (existing_offset) -> (existing_offset, existing_offset - 8)
   | None ->
-      (* Assuming each variable occupies 8 bytes on the stack *)
+      (* Assuming each variable occupies 8 bytes on the stack for data and 8 bytes for type *)
       let var_size = 8 in
+      let type_size = 8 in
       (* Update the current stack offset *)
-      current_stack_offset := !current_stack_offset - var_size;
-      !current_stack_offset
-
-(* Define a hash table to store function names and their return types *)
-let function_return_types = Hashtbl.create 100
-
-(* Initialize the hash table with known functions and their return types *)
-let initialize_function_return_types () =
-  Hashtbl.add function_return_types "len" "int";
-  (* Add other functions and their return types here *)
-  ()
+      current_stack_offset := !current_stack_offset - (var_size + type_size);
+      let stack_offset = !current_stack_offset + type_size in
+      let type_offset = !current_stack_offset in
+      (stack_offset, type_offset)
 
 let current_fn_name = ref "main"
 
 let rec compile_expr = function
-  | TEcst c -> movq (imm64 (compile_constant c)) !%rax
+  | TEcst c -> 
+      (match c with
+       | Cnone -> 
+          movq (imm 0) !%rax++
+          movq (imm 4) !%r10
+       | Cbool true -> 
+          movq (imm 1) !%rax++
+          movq (imm 2) !%r10
+       | Cbool false -> 
+          movq (imm 0) !%rax++
+          movq (imm 2) !%r10
+       | Cint i -> 
+          movq (imm64 i) !%rax ++
+          movq (imm 1) !%r10
+       | Cstring s ->
+          (let lbl = new_label () in
+          string_constants := (lbl, s) :: !string_constants;
+          leaq (lab lbl) rax)++
+          movq (imm 0) !%r10)
   | TEvar v ->
       let current_var_table = Stack.top var_table_stack in
       (match Hashtbl.find_opt current_var_table v.v_name with
-       | Some (_, stack_offset) ->
+       | Some (stack_offset) ->
            (* Generate code to load the variable's value from the stack *)
-           movq (ind ~ofs:stack_offset rbp) !%rax
+           movq (ind ~ofs:stack_offset rbp) !%rax ++
+           movq (ind ~ofs:(stack_offset - 8) rbp) !%r10
        | None ->
            failwith ("Variable " ^ v.v_name ^ " not found in symbol table"))
   | TEbinop (op, lhs, rhs) ->
@@ -92,13 +98,20 @@ let rec compile_expr = function
                 leaq (lab lbl2) rsi ++
                 leaq (lab lbl1) rdi ++
                 movq (imm 0) !%rax ++
-                call "strcat"
-            | Beq -> movq (imm64 (if s1 = s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax
-            | Bneq -> movq (imm64 (if s1 <> s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax
-            | Blt -> movq (imm64 (if s1 < s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax
-            | Ble -> movq (imm64 (if s1 <= s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax
-            | Bgt -> movq (imm64 (if s1 > s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax
-            | Bge -> movq (imm64 (if s1 >= s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax
+                call "strcat" ++
+                movq (imm 0) !%r10
+            | Beq -> movq (imm64 (if s1 = s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax ++
+                      movq (imm 2) !%r10
+            | Bneq -> movq (imm64 (if s1 <> s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax ++ 
+                       movq (imm 2) !%r10
+            | Blt -> movq (imm64 (if s1 < s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax ++
+                      movq (imm 2) !%r10
+            | Ble -> movq (imm64 (if s1 <= s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax ++
+                      movq (imm 2) !%r10
+            | Bgt -> movq (imm64 (if s1 > s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax ++
+                      movq (imm 2) !%r10
+            | Bge -> movq (imm64 (if s1 >= s2 then Int64.of_int 1 else Int64.of_int 0)) !%rax ++
+                      movq (imm 2) !%r10
             | _ -> failwith "Type error: cannot perform operation on strings")
        | TEcst (Cint _), TEcst (Cstring _)
        | TEcst (Cstring _), TEcst (Cint _) ->
@@ -118,7 +131,8 @@ let rec compile_expr = function
               jmp end_label ++
               label false_label ++
               movq (imm 0) !%rax ++
-              label end_label
+              label end_label ++
+              movq (imm 2) !%r10
             | Bor -> 
               let true_label = new_label () in
               let end_label = new_label () in
@@ -132,7 +146,8 @@ let rec compile_expr = function
               jmp end_label ++
               label true_label ++
               movq (imm 1) !%rax ++
-              label end_label
+              label end_label ++
+              movq (imm 2) !%r10
             | _ -> (
               compile_expr rhs ++
               pushq !%rax ++
@@ -144,12 +159,12 @@ let rec compile_expr = function
                 | Bmul -> imulq !%rbx !%rax
                 | Bdiv -> cqto ++ idivq !%rbx
                 | Bmod -> cqto ++ idivq !%rbx ++ movq !%rdx !%rax
-                | Beq -> cmpq !%rbx !%rax ++ sete !%al ++ movzbq !%al rax
-                | Bneq -> cmpq !%rbx !%rax ++ setne !%al ++ movzbq !%al rax
-                | Blt -> cmpq !%rbx !%rax ++ setl !%al ++ movzbq !%al rax
-                | Ble -> cmpq !%rbx !%rax ++ setle !%al ++ movzbq !%al rax
-                | Bgt -> cmpq !%rbx !%rax ++ setg !%al ++ movzbq !%al rax
-                | Bge -> cmpq !%rbx !%rax ++ setge !%al ++ movzbq !%al rax
+                | Beq -> cmpq !%rbx !%rax ++ sete !%al ++ movzbq !%al rax ++ movq (imm 2) !%r10
+                | Bneq -> cmpq !%rbx !%rax ++ setne !%al ++ movzbq !%al rax ++ movq (imm 2) !%r10
+                | Blt -> cmpq !%rbx !%rax ++ setl !%al ++ movzbq !%al rax ++ movq (imm 2) !%r10
+                | Ble -> cmpq !%rbx !%rax ++ setle !%al ++ movzbq !%al rax ++ movq (imm 2) !%r10
+                | Bgt -> cmpq !%rbx !%rax ++ setg !%al ++ movzbq !%al rax ++ movq (imm 2) !%r10
+                | Bge -> cmpq !%rbx !%rax ++ setge !%al ++ movzbq !%al rax ++ movq (imm 2) !%r10
                 | _ -> failwith "Type error: cannot perform operation on strings"
               )))
   | TEunop (Uneg, e) -> compile_expr e ++ negq !%rax
@@ -179,7 +194,8 @@ let rec compile_expr = function
       movq (imm (num_elements)) (ind ~ofs:(ptr-8) rbp) ++
       code ++
       movq !%rbp !%rax ++ 
-      addq (imm (ptr - 8)) !%rax
+      addq (imm (ptr - 8)) !%rax ++
+      movq (imm 3) !%r10
   | TErange _ -> failwith "Range is not supported in code generation"
   | TEget (list_expr, index_expr) ->
       compile_expr index_expr ++
@@ -208,182 +224,92 @@ let rec compile_stmt = function
   | TSreturn e ->
         (match e with
           | TEcst (Cstring s) -> 
-              Hashtbl.add function_return_types !current_fn_name "string";
-              let lbl = new_label () in
-              string_constants := (lbl, s) :: !string_constants;
-              leaq (lab lbl) rax 
+              compile_expr e ++ 
+              movq (imm 0) !%r10
           | TEcst (Cint _) ->
-              Hashtbl.add function_return_types !current_fn_name "int";
-              compile_expr e
+              compile_expr e ++
+              movq (imm 1) !%r10
           | TEcst (Cbool _) ->
-              Hashtbl.add function_return_types !current_fn_name "bool";
-              compile_expr e
+              compile_expr e ++
+              movq (imm 2) !%r10
           | TEcst (Cnone) ->
-              Hashtbl.add function_return_types !current_fn_name "none";
-              movq (imm 0) !%rax
+              movq (imm 0) !%rax ++
+              movq (imm 4) !%r10
           | TEvar v -> (
               let current_var_table = Stack.top var_table_stack in
               (match Hashtbl.find_opt current_var_table v.v_name with
-              | Some ("string", stack_offset) ->
-                  Hashtbl.add function_return_types !current_fn_name "string";
-                  movq (ind ~ofs:stack_offset rbp) !%rax
-              | Some ("int", stack_offset) ->
-                  Hashtbl.add function_return_types !current_fn_name "int";
-                  movq (ind ~ofs:stack_offset rbp) !%rax
-              | Some ("bool", stack_offset) ->
-                  Hashtbl.add function_return_types !current_fn_name "bool";
-                  movq (ind ~ofs:stack_offset rbp) !%rax
-              | Some ("none", stack_offset) ->
-                  Hashtbl.add function_return_types !current_fn_name "none";
-                  movq (ind ~ofs:stack_offset rbp) !%rax
-              | Some (_, stack_offset) ->
+              | Some (stack_offset) ->
                   movq (ind ~ofs:stack_offset rbp) !%rax
               | None ->
                   failwith ("Variable " ^ v.v_name ^ " not found in symbol table"))
-          )
+             )
           | _ -> compile_expr e
         )
   | TSassign (v, e) -> 
       (* Calculate the stack offset for the variable *)
-      let stack_offset = calculate_stack_offset v in
+      let (stack_offset, type_offset) = calculate_stack_offset v in
+      record_var_name v.v_name stack_offset;
+      v.v_ofs <- stack_offset;
       (* Record the variable name, type, and stack offset *)
       subq (imm 8) !%rsp ++
+      compile_expr e ++
+      movq !%rax (ind ~ofs:stack_offset rbp) ++
       (match e with
        | TEcst (Cstring s) ->
-            record_var_name v.v_name "string" stack_offset;
-            let lbl = new_label () in
-            string_constants := (lbl, s) :: !string_constants;
-            leaq (lab lbl) rax ++
-            movq !%rax (ind ~ofs:stack_offset rbp)
+            movq (imm 0) (ind ~ofs:type_offset rbp)
        | TEcst (Cint _) ->
-            record_var_name v.v_name "int" stack_offset;
-            compile_expr e ++ movq !%rax (ind ~ofs:stack_offset rbp)
+            movq (imm 1) (ind ~ofs:type_offset rbp)
        | TEcst (Cbool _) ->
-            record_var_name v.v_name "bool" stack_offset;
-            compile_expr e ++ movq !%rax (ind ~ofs:stack_offset rbp)
-       | TEbinop (_, TEvar (v1), TEvar (v2)) ->
-            let current_var_table = Stack.top var_table_stack in
-            (match Hashtbl.find_opt current_var_table v1.v_name, Hashtbl.find_opt current_var_table v2.v_name with
-              | Some ("int", _), Some ("int", _) ->
-                  record_var_name v.v_name "int" stack_offset;
-                  compile_expr e ++ movq !%rax (ind ~ofs:stack_offset rbp)
-              | Some ("bool", _), Some ("bool", _) ->
-                record_var_name v.v_name "bool" stack_offset;
-                compile_expr e ++ movq !%rax (ind ~ofs:stack_offset rbp)
-              | Some ("string", _), Some ("string", _) ->
-                record_var_name v.v_name "string" stack_offset;
-                compile_expr e ++ movq !%rax (ind ~ofs:stack_offset rbp)
-              | _ -> failwith "Type error: cannot assign variables of different types")
+            movq (imm 2) (ind ~ofs:type_offset rbp)
        | TElist _ ->
-            record_var_name v.v_name "list" stack_offset;
-            compile_expr e ++ movq !%rax (ind ~ofs:stack_offset rbp)
-       | _ -> failwith "Type error: cannot assign variable of type None")
+            movq (imm 3) (ind ~ofs:type_offset rbp)
+       | _ -> failwith "Type error: cannot assign variable of type None") ++ movq (imm 4) !%r10
   | TSprint e -> 
-      (match e with
-       | TEvar v ->
-            let current_var_table = Stack.top var_table_stack in
-           (match Hashtbl.find_opt current_var_table v.v_name with
-            | Some ("string", _) ->
-                compile_expr e ++
-                movq !%rax !%rsi ++
-                leaq (lab "fmt_str") rdi ++
-                movq (imm 0) !%rax ++
-                call "printf"
-            (* | Some ("int", _) | Some ("bool", _) -> *)
-            | _ ->
-                compile_expr e ++
-                movq !%rax !%rsi ++
-                leaq (lab "fmt_int") rdi ++
-                movq (imm 0) !%rax ++
-                call "printf"
-            (* | _ -> nop) *)
-            )
-       | TEbinop (Badd, TEcst (Cstring _), TEcst (Cstring _)) ->
-           compile_expr e ++
-           movq !%rax !%rsi ++
-           leaq (lab "fmt_str") rdi ++
-           movq (imm 0) !%rax ++
-           call "printf"
-       | TEcst (Cstring s) ->
-           let lbl = new_label () in
-           string_constants := (lbl, s) :: !string_constants;
-           leaq (lab lbl) rax ++
-           movq !%rax !%rsi ++
-           leaq (lab "fmt_str") rdi ++
-           movq (imm 0) !%rax ++
-           call "printf"
-       | TEcst (Cbool true) ->
-           leaq (lab "true_str") rdi ++
-           movq (imm 0) !%rax ++
-           call "printf"          
-       | TEbinop (Band, _, _) | TEbinop (Bor, _, _)
-       | TEbinop (Beq, _, _) | TEbinop (Bneq, _, _) | TEbinop (Blt, _, _) 
-       | TEbinop (Ble, _, _) | TEbinop (Bgt, _, _) | TEbinop (Bge, _, _) ->
-           let false_label = new_label () in
-           let end_label = new_label () in
-           compile_expr e ++
-           testq !%rax !%rax ++
-           jz false_label ++
-           leaq (lab "true_str") rdi ++
-           movq (imm 0) !%rax ++
-           call "printf" ++
-           jmp end_label ++
-           X86_64.label false_label ++
-           leaq (lab "false_str") rdi ++
-           movq (imm 0) !%rax ++
-           call "printf" ++
-           X86_64.label end_label
-       | TEcst (Cbool false) ->
-           leaq (lab "false_str") rdi ++
-           movq (imm 0) !%rax ++
-           call "printf"
-       | TEcst (Cnone) ->
-          leaq (lab "none_str") rdi ++
-          movq (imm 0) !%rax ++
-          call "printf"
-       | TEcall (fn, _) ->
-           (match Hashtbl.find_opt function_return_types fn.fn_name with
-            | Some "string" ->
-                compile_expr e ++
-                movq !%rax !%rsi ++
-                leaq (lab "fmt_str") rdi ++
-                movq (imm 0) !%rax ++
-                call "printf"
-            | Some "int" ->
-                compile_expr e ++
-                movq !%rax !%rsi ++
-                leaq (lab "fmt_int") rdi ++
-                movq (imm 0) !%rax ++
-                call "printf"
-            | Some "bool" ->
-                let false_label = new_label () in
-                let end_label = new_label () in
-                compile_expr e ++
-                testq !%rax !%rax ++
-                jz false_label ++
-                leaq (lab "true_str") rdi ++
-                movq (imm 0) !%rax ++
-                call "printf" ++
-                jmp end_label ++
-                X86_64.label false_label ++
-                leaq (lab "false_str") rdi ++
-                movq (imm 0) !%rax ++
-                call "printf" ++
-                X86_64.label end_label
-            | _ ->
-                leaq (lab "none_str") rdi ++
-                movq (imm 0) !%rax ++
-                call "printf")
-       | _ ->
-           compile_expr e ++
-           movq !%rax !%rsi ++
-           leaq (lab "fmt_int") rdi ++
-           movq (imm 0) !%rax ++
-           call "printf")
+    let print_string = new_label () in
+    let print_int = new_label () in
+    let print_bool = new_label () in
+    let print_none = new_label () in
+    let print_end = new_label () in
+    let print_true = new_label () in
+    compile_expr e ++
+    movq !%rax !%rsi ++
+    movq (imm 0) !%rax ++
+    cmpq (imm 0) !%r10 ++
+    je print_string ++
+    cmpq (imm 1) !%r10 ++
+    je print_int ++
+    cmpq (imm 2) !%r10 ++
+    je print_bool ++
+    jmp print_none ++
+
+    label print_string ++
+    movq (ilab "fmt_str") !%rdi ++
+    jmp print_end ++
+
+    label print_int ++
+    movq (ilab "fmt_int") !%rdi ++
+    jmp print_end ++
+
+    label print_bool ++
+    cmpq (imm 1) !%rsi ++
+    je print_true ++
+    movq (ilab "false_str") !%rdi ++
+    jmp print_end ++
+
+    label print_true ++
+    movq (ilab "true_str") !%rdi ++
+    jmp print_end ++
+
+    label print_none ++
+    movq (ilab "none_str") !%rdi ++
+
+    label print_end ++
+    call "printf"
   | TSblock stmts -> List.fold_left (++) nop (List.map compile_stmt stmts)
   | TSfor (v, collection, body) ->
       (* Record the loop variable name, type, and stack offset *)
-      record_var_name v.v_name "int" v.v_ofs; (* Assuming loop variable is an integer *)
+      record_var_name v.v_name v.v_ofs;
+      movq (imm 1) !%rax ++
       compile_expr collection ++
       compile_stmt body
   | TSeval e -> compile_expr e
@@ -399,12 +325,13 @@ let compile_def (fn, body) =
     pushq !%rbp ++ 
     movq !%rsp !%rbp ++
     List.fold_left (++) nop (List.map (fun (v, offset) -> 
-      movq (ind ~ofs:(8-calculate_stack_offset v) rbp) !%rax ++
+      let (stack_offset, type_offset) = calculate_stack_offset v in
+      movq (ind ~ofs:(8-stack_offset) rbp) !%rax ++
       movq !%rax (ind ~ofs:offset rbp)
       ) params_offsets)
   in
   enter_scope ();
-  List.iter (fun (v, offset) -> record_var_name v.v_name "int" offset) params_offsets;
+  List.iter (fun (v, offset) -> record_var_name v.v_name offset) params_offsets;
   current_fn_name := fn.fn_name;
   let code = 
     compile_stmt body ++
