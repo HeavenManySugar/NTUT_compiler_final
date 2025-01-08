@@ -102,6 +102,57 @@ let rec compile_expr = function
        | TEcst (Cint _), TEcst (Cstring _)
        | TEcst (Cstring _), TEcst (Cint _) ->
            jmp "error"  (* Exit the program if there is a type error *)
+       | TElist _, TElist _ ->
+            (match op with
+              | Beq -> 
+                  let false_label = new_label () in
+                  let end_label = new_label () in
+                  let allocate_space = subq (imm 16) !%rsp in
+                  let ptr = !current_stack_offset in
+                  current_stack_offset := ptr - 16;
+                  let lhs_code = compile_expr lhs in
+                  let rhs_code = compile_expr rhs in  
+                  allocate_space ++
+                  lhs_code ++
+                  movq !%rax (ind ~ofs:(ptr-8) rbp) ++
+                  rhs_code ++
+                  movq !%rax (ind ~ofs:(ptr-16) rbp) ++
+                  movq (ind ~ofs:(ptr-8) rbp) !%rsi ++
+                  movq (ind ~ofs:(ptr-16) rbp) !%rdi ++
+                  movq (imm 0) !%rax ++
+                  call "compare_lists" ++
+                  testq !%rax !%rax ++
+                  jz false_label ++
+                  movq (imm 1) !%rax ++
+                  jmp end_label ++
+                  label false_label ++
+                  movq (imm 0) !%rax ++
+                  label end_label
+              | Bneq -> 
+                  let true_label = new_label () in
+                  let end_label = new_label () in
+                  let allocate_space = subq (imm 16) !%rsp in
+                  let ptr = !current_stack_offset in
+                  current_stack_offset := ptr - 16;
+                  let lhs_code = compile_expr lhs in
+                  let rhs_code = compile_expr rhs in  
+                  allocate_space ++
+                  lhs_code ++
+                  movq !%rax (ind ~ofs:(ptr-8) rbp) ++
+                  rhs_code ++
+                  movq !%rax (ind ~ofs:(ptr-16) rbp) ++
+                  movq (ind ~ofs:(ptr-8) rbp) !%rsi ++
+                  movq (ind ~ofs:(ptr-16) rbp) !%rdi ++
+                  movq (imm 0) !%rax ++
+                  call "compare_lists" ++
+                  testq !%rax !%rax ++
+                  jnz true_label ++
+                  movq (imm 1) !%rax ++
+                  jmp end_label ++
+                  label true_label ++
+                  movq (imm 0) !%rax ++
+                  label end_label
+              | _ -> failwith "Type error: cannot perform operation on lists")
        | _ ->
            (match op with
             | Band -> 
@@ -402,8 +453,48 @@ let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
     List.fold_left (++) nop (List.map compile_def p) ++
     label "error" ++
     leave ++
-    movq (imm 1) !%rax ++
-    ret
+    label "compare_lists" ++
+    pushq !%rbp ++
+    movq !%rsp !%rbp ++
+    movq (ind ~ofs:0 rsi) !%rcx ++  (* Load length of first list into rcx *)
+    movq (ind ~ofs:0 rdi) !%rdx ++  (* Load length of second list into rdx *)
+    let not_equal = new_label () in
+    cmpq !%rcx !%rdx ++  (* Compare lengths *)
+    jne not_equal ++ (* Jump if lengths are not equal *)
+
+    movq (imm 1) !%rax ++  (* Initialize index *)
+    incq !%rcx ++
+
+    (* Compare elements of the lists *)
+    label "compare_elements" ++
+    cmpq !%rax !%rcx ++  (* Compare index with length *)
+    je "end_compare" ++  (* Jump if all elements are compared *)
+    
+
+    (* Load elements from both lists and compare *)
+    movq !%rax !%rbx ++  (* Load index into rbx *)
+    imulq (imm 8) !%rbx ++  (* Multiply index by 8 (size of each element) *)
+    movq !%rsi !%rdx ++  (* Load base address of first list into rdx *)
+    subq !%rbx !%rdx ++  (* sub offset to base address *)
+    movq (ind ~ofs:0 rdx) !%r8 ++
+    movq !%rdi !%rdx ++  (* Load base address of second list into rdx *)
+    subq !%rbx !%rdx ++  (* sub offset to base address *)
+    movq (ind ~ofs:0 rdx) !%r9 ++
+    cmpq !%r8 !%r9 ++
+    jne not_equal ++  (* Jump if elements are not equal *)
+
+    incq !%rax ++  (* Increment index *)
+    jmp "compare_elements" ++
+
+    label "end_compare" ++
+    movq (imm 1) !%rax ++  (* Lists are equal *)
+    leave ++
+    ret ++
+    
+    label not_equal ++
+    movq (imm 0) !%rax ++  (* Lists are not equal *)
+    leave ++
+    ret 
     in
   let data_section = 
     List.fold_left (fun acc (lbl, str) -> acc ++ X86_64.label lbl ++ string str) nop !string_constants ++
