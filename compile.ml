@@ -492,22 +492,6 @@ let rec compile_stmt = function
     let print_str = new_label () in
     let print_end = new_label () in
     let false_label = new_label () in
-    let print_list_loop = new_label () in
-    let print_list_end = new_label () in
-    let print_list_none = new_label () in
-    let print_list_bool = new_label () in
-    let print_list_bool_false = new_label () in
-    let print_list_int = new_label () in
-    let print_list_str = new_label () in
-    let print_list_continue = new_label () in
-    let save_print_reg = 
-      pushq !%rax ++
-      pushq !%r10 ++
-      pushq !%r11 in
-    let restore_print_reg = 
-      popq r11 ++
-      popq r10 ++
-      popq rax in
     compile_expr e ++
     movq (ind ~ofs:(-8) rax) !%r10 ++
     cmpq (imm 0) !%r10 ++
@@ -520,7 +504,105 @@ let rec compile_stmt = function
     je print_str ++
     cmpq (imm 4) !%r10 ++
     jne "error" ++
+    call "print_list" ++
+    jmp print_end ++
 
+
+    label print_none ++
+    leaq (lab "none_str") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    jmp print_end ++
+
+    label print_bool ++
+    movq (ind ~ofs:(-16) rax) !%rax ++
+    testq !%rax !%rax ++
+    jz false_label ++
+    leaq (lab "true_str") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    jmp print_end ++
+    X86_64.label false_label ++
+    leaq (lab "false_str") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    jmp print_end ++
+
+    label print_int ++
+    leaq (lab "fmt_int") rdi ++
+    movq (ind ~ofs:(-16) rax) !%rsi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    jmp print_end ++
+
+    label print_str ++
+    leaq (lab "fmt_str") rdi ++
+    movq (ind ~ofs:(-24) rax) !%rsi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+
+    label print_end ++
+    leaq (lab "endl_str") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" 
+  | TSblock stmts -> List.fold_left (++) nop (List.map compile_stmt stmts)
+  | TSfor (v, collection, body) -> failwith "For loops are not supported in code generation"
+  | TSeval e -> compile_expr e
+  | TSset (collection, index, value) -> failwith "List assignment is not supported in code generation"
+
+let compile_def (fn, body) =
+  current_fn_name := fn.fn_name;
+  let code = 
+    pushq !%rbp ++
+    movq !%rsp !%rbp ++
+    compile_stmt body ++
+    (if fn.fn_name = "main" then
+      movq (imm 0) !%rax
+    else
+      nop) ++
+    leave ++
+    ret
+  in
+  label fn.fn_name ++ code
+
+let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
+  debug := b;
+  let print_list_loop = new_label () in
+  let print_list_end = new_label () in
+  let print_list_none = new_label () in
+  let print_list_bool = new_label () in
+  let print_list_bool_false = new_label () in
+  let print_list_int = new_label () in
+  let print_list_str = new_label () in
+  let print_list_continue = new_label () in
+  let save_print_reg = 
+    pushq !%rax ++
+    pushq !%r10 ++
+    pushq !%r11 in
+  let restore_print_reg = 
+    popq r11 ++
+    popq r10 ++
+    popq rax in
+  let text_section = 
+    globl "main" ++ 
+    List.fold_left (++) nop (List.map compile_def p) ++
+    label "error" ++
+    movq (imm 1) !%rax ++
+    leave ++
+    ret ++
+    label "my_malloc" ++
+    pushq !%rbp ++
+    movq !%rsp !%rbp ++
+    andq (imm (-16)) !%rsp ++ 
+    call "malloc" ++
+    movq !%rbp !%rsp ++
+    popq rbp ++
+    ret ++
+
+
+    label "print_list" ++
+    pushq !%rbp ++
+    movq !%rsp !%rbp ++
     pushq !%rax ++
     leaq (lab "open_bracket") rdi ++
     movq (imm 0) !%rax ++
@@ -550,7 +632,11 @@ let rec compile_stmt = function
     je print_list_str ++
     cmpq (imm 4) !%rsi ++
     jne "error" ++
-    (* TODO *)
+    save_print_reg ++
+    movq !%r12 !%rax ++
+    call "print_list" ++
+    restore_print_reg ++
+    jmp print_list_continue ++
 
     label print_list_none ++
     leaq (lab "none_str") rdi ++
@@ -612,83 +698,11 @@ let rec compile_stmt = function
     label (print_list_end)++
     leaq (lab "close_bracket") rdi ++
     movq (imm 0) !%rax ++
+    pushq !%rax ++
     call "printf" ++
-    jmp print_end ++
-
-    label print_none ++
-    leaq (lab "none_str") rdi ++
-    movq (imm 0) !%rax ++
-    call "printf" ++
-    jmp print_end ++
-
-    label print_bool ++
-    movq (ind ~ofs:(-16) rax) !%rax ++
-    testq !%rax !%rax ++
-    jz false_label ++
-    leaq (lab "true_str") rdi ++
-    movq (imm 0) !%rax ++
-    call "printf" ++
-    jmp print_end ++
-    X86_64.label false_label ++
-    leaq (lab "false_str") rdi ++
-    movq (imm 0) !%rax ++
-    call "printf" ++
-    jmp print_end ++
-
-    label print_int ++
-    leaq (lab "fmt_int") rdi ++
-    movq (ind ~ofs:(-16) rax) !%rsi ++
-    movq (imm 0) !%rax ++
-    call "printf" ++
-    jmp print_end ++
-
-    label print_str ++
-    leaq (lab "fmt_str") rdi ++
-    movq (ind ~ofs:(-24) rax) !%rsi ++
-    movq (imm 0) !%rax ++
-    call "printf" ++
-
-    label print_end ++
-    leaq (lab "endl_str") rdi ++
-    movq (imm 0) !%rax ++
-    call "printf" 
-  | TSblock stmts -> List.fold_left (++) nop (List.map compile_stmt stmts)
-  | TSfor (v, collection, body) -> failwith "For loops are not supported in code generation"
-  | TSeval e -> compile_expr e
-  | TSset (collection, index, value) -> failwith "List assignment is not supported in code generation"
-
-let compile_def (fn, body) =
-  current_fn_name := fn.fn_name;
-  let code = 
-    pushq !%rbp ++
-    movq !%rsp !%rbp ++
-    compile_stmt body ++
-    (if fn.fn_name = "main" then
-      movq (imm 0) !%rax
-    else
-      nop) ++
+    popq rax ++
     leave ++
     ret
-  in
-  label fn.fn_name ++ code
-
-let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
-  debug := b;
-  let text_section = 
-    globl "main" ++ 
-    List.fold_left (++) nop (List.map compile_def p) ++
-    label "error" ++
-    movq (imm 1) !%rax ++
-    leave ++
-    ret ++
-    label "my_malloc" ++
-    pushq !%rbp ++
-    movq !%rsp !%rbp ++
-    andq (imm (-16)) !%rsp ++ 
-    call "malloc" ++
-    movq !%rbp !%rsp ++
-    popq rbp ++
-    ret 
     in
   let data_section = 
     List.fold_left (fun acc (lbl, str) -> acc ++ X86_64.label lbl ++ string str) nop !string_constants ++
