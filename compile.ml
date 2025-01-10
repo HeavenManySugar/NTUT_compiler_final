@@ -23,21 +23,29 @@ let rec compile_expr = function
   | TEcst c ->
     (match c with
       | Cnone -> 
+        pushq !%rdi ++
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 0) (ind ~ofs:(-8) rax) ++
-        movq (imm 0) (ind ~ofs:(-16) rax) 
+        movq (imm 0) (ind ~ofs:(-16) rax) ++
+        popq rdi
       | Cbool b ->
+        pushq !%rdi ++
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 1) (ind ~ofs:(-8) rax) ++
-        movq (imm (if b then 1 else 0)) (ind ~ofs:(-16) rax) 
+        movq (imm (if b then 1 else 0)) (ind ~ofs:(-16) rax) ++
+        popq rdi
       | Cint i -> 
+        pushq !%rdi ++
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 2) (ind ~ofs:(-8) rax) ++
-        movq (imm64 i) (ind ~ofs:(-16) rax) 
+        movq (imm64 i) (ind ~ofs:(-16) rax) ++
+        popq rdi
       | Cstring s ->
+        pushq !%rdi ++
+        pushq !%rbx ++
         let lbl = new_label () in
         string_constants := (lbl, s) :: !string_constants;
         movq (imm 3) !%rdi ++
@@ -45,7 +53,9 @@ let rec compile_expr = function
         movq (imm 3) (ind ~ofs:(-8) rax) ++
         movq (imm (String.length s)) (ind ~ofs:(-16) rax) ++
         leaq (lab lbl) rbx ++
-        movq !%rbx (ind ~ofs:(-24) rax)
+        movq !%rbx (ind ~ofs:(-24) rax) ++
+        popq rbx ++
+        popq rdi
       )
   | TEvar v -> movq (ind ~ofs:v.v_ofs rbp) !%rax
   | TEbinop (Badd, TEcst (Cstring s1), TEcst (Cstring s2)) ->
@@ -433,36 +443,43 @@ let rec compile_expr = function
           movq (ind ~ofs:(-16) rax) !%rax
       | _ ->
         failwith "Function calls are not supported in code generation")
-        | TElist elements -> 
-        let num_elements = List.length elements in
-        movq (imm (num_elements + 2)) !%rdi ++
-        call "my_malloc" ++
-        movq (imm 4) (ind ~ofs:(-8) rax) ++
-        movq (imm num_elements) (ind ~ofs:(-16) rax) ++
-        movq !%rax !%rbx ++
-        let rec compile_elements i = function
-          | [] -> nop
-          | e :: es -> 
-              pushq !%rbx ++
-              compile_expr e ++
-              popq rbx ++
-              movq !%rax (ind ~ofs:(-8 * (i + 3)) rbx) ++
-              compile_elements (i + 1) es
-        in
-        compile_elements 0 elements ++
-        movq !%rbx !%rax
-    | TErange _ -> failwith "Range is not supported in code generation"
-    | TEget (list_expr, index_expr) -> 
-        compile_expr index_expr ++
-        movq (ind ~ofs:(-16) rax) !%rax ++
-        addq (imm 3) !%rax ++ 
-        pushq !%rax ++
-        compile_expr list_expr ++
-        popq rbx ++
-        movq !%rax !%rcx ++
-        imulq (imm 8) !%rbx ++ 
-        subq !%rbx !%rcx ++
-        movq (ind ~ofs:0 rcx) !%rax 
+  | TElist elements -> 
+      let num_elements = List.length elements in
+      let rec compile_elements i = function
+      | [] -> nop
+      | e :: es -> 
+          pushq !%rbx ++
+          compile_expr e ++
+          popq rbx ++
+          movq !%rax (ind ~ofs:(-8 * (i + 3)) rbx) ++
+          compile_elements (i + 1) es
+      in
+      pushq !%rbx ++
+      pushq !%rdi ++
+      movq (imm (num_elements + 2)) !%rdi ++
+      call "my_malloc" ++
+      movq (imm 4) (ind ~ofs:(-8) rax) ++
+      movq (imm num_elements) (ind ~ofs:(-16) rax) ++
+      movq !%rax !%rbx ++
+      compile_elements 0 elements ++
+      movq !%rbx !%rax ++
+      popq rdi ++
+      popq rbx
+  | TErange _ -> failwith "Range is not supported in code generation"
+  | TEget (list_expr, index_expr) -> 
+      let c1 = compile_expr index_expr in
+      let c2 = compile_expr list_expr in
+      pushq !%rbx ++
+      c1 ++
+      movq (ind ~ofs:(-16) rax) !%rax ++
+      addq (imm 3) !%rax ++ 
+      pushq !%rax ++
+      c2 ++
+      popq rbx ++
+      imulq (imm 8) !%rbx ++ 
+      subq !%rbx !%rax ++
+      movq (ind ~ofs:0 rax) !%rax ++
+      popq rbx
   
 (* Example of updating stack offset during variable assignment *)
 let rec compile_stmt = function
@@ -492,7 +509,8 @@ let rec compile_stmt = function
     let print_str = new_label () in
     let print_end = new_label () in
     let false_label = new_label () in
-    compile_expr e ++
+    let code = compile_expr e in
+    code ++
     movq (ind ~ofs:(-8) rax) !%r10 ++
     cmpq (imm 0) !%r10 ++
     je print_none ++
@@ -503,7 +521,10 @@ let rec compile_stmt = function
     cmpq (imm 3) !%r10 ++
     je print_str ++
     cmpq (imm 4) !%r10 ++
-    jne "error" ++
+    (* jne "error" ++ *)
+    jne print_int ++
+    (* temporary *)
+
     call "print_list" ++
     jmp print_end ++
 
@@ -548,7 +569,24 @@ let rec compile_stmt = function
   | TSblock stmts -> List.fold_left (++) nop (List.map compile_stmt stmts)
   | TSfor (v, collection, body) -> failwith "For loops are not supported in code generation"
   | TSeval e -> compile_expr e
-  | TSset (collection, index, value) -> failwith "List assignment is not supported in code generation"
+  | TSset (list1_expr1, index_expr, list2_expr) -> 
+    pushq !%r10 ++
+    pushq !%r11 ++
+    compile_expr index_expr ++
+    movq (ind ~ofs:(-16) rax) !%rax ++
+    addq (imm 3) !%rax ++ 
+    pushq !%rax ++
+    compile_expr list1_expr1 ++
+    pushq !%rax ++
+    compile_expr list2_expr ++
+    popq r10 ++
+    popq r11 ++
+    imulq (imm 8) !%r11 ++ 
+    subq !%r11 !%r10 ++
+    movq !%rax (ind ~ofs:0 r10) ++
+    movq !%r10 !%rax ++
+    popq r11 ++
+    popq r10
 
 let compile_def (fn, body) =
   current_fn_name := fn.fn_name;
@@ -631,7 +669,9 @@ let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
     cmpq (imm 3) !%rsi ++
     je print_list_str ++
     cmpq (imm 4) !%rsi ++
-    jne "error" ++
+    (* jne "error" ++ *)
+    jne print_list_int ++
+    (* temporary *)
     save_print_reg ++
     movq !%r12 !%rax ++
     call "print_list" ++
