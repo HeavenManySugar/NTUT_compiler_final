@@ -14,81 +14,34 @@ let new_label () =
 
 let string_constants = ref []
 
-let compile_constant = function
-  | Cnone -> 0L
-  | Cbool true -> 1L
-  | Cbool false -> 0L
-  | Cstring s -> 1L
-  | Cint i -> i
-
-(* Define a stack to keep track of symbol tables for each scope *)
-let var_table_stack : (string, (int)) Hashtbl.t Stack.t = Stack.create ()
-
-(* Function to record variable name, type, and stack offset *)
-let record_var_name var_name var_ofs =
-  let current_var_table = Stack.top var_table_stack in
-  Hashtbl.replace current_var_table var_name var_ofs
-
-(* Define a stack to keep track of stack offsets for each scope *)
-let stack_offset_stack = Stack.create ()
+let current_fn_name = ref "main"
 
 (* Define a variable to keep track of the current stack offset *)
 let current_stack_offset = ref 0
-
-(* Function to enter a new scope *)
-let enter_scope () =
-  let new_var_table = Hashtbl.create 100 in
-  Stack.push new_var_table var_table_stack;
-  Stack.push !current_stack_offset stack_offset_stack;
-  current_stack_offset := 0
-
-(* Function to exit the current scope *)
-let exit_scope () =
-  ignore (Stack.pop var_table_stack);
-  current_stack_offset := Stack.pop stack_offset_stack
-
-(* Function to calculate the stack offset for a variable *)
-let calculate_stack_offset var =
-  let current_var_table = Stack.top var_table_stack in
-  match Hashtbl.find_opt current_var_table var.v_name with
-  | Some existing_offset -> existing_offset
-  | None ->
-      (* Assuming each variable occupies 8 bytes on the stack *)
-      let var_size = 8 in
-      (* Update the current stack offset *)
-      current_stack_offset := !current_stack_offset - var_size;
-      !current_stack_offset
-
-(* Define a hash table to store function names and their return types *)
-let function_return_types = Hashtbl.create 100
-
-(* Initialize the hash table with known functions and their return types *)
-let initialize_function_return_types () =
-  Hashtbl.add function_return_types "len" "int";
-  (* Add other functions and their return types here *)
-  ()
-
-let current_fn_name = ref "main"
 
 let rec compile_expr = function
   | TEcst c ->
     (match c with
       | Cnone -> 
+        current_stack_offset := !current_stack_offset - 16;
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 0) (ind ~ofs:(-8) rax) ++
         movq (imm 0) (ind ~ofs:(-16) rax) 
       | Cbool b ->
+        current_stack_offset := !current_stack_offset - 16;
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 1) (ind ~ofs:(-8) rax) ++
         movq (imm (if b then 1 else 0)) (ind ~ofs:(-16) rax) 
       | Cint i -> 
+        current_stack_offset := !current_stack_offset - 16;
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 2) (ind ~ofs:(-8) rax) ++
         movq (imm64 i) (ind ~ofs:(-16) rax) 
       | Cstring s ->
+        current_stack_offset := !current_stack_offset - 24;
         let lbl = new_label () in
         string_constants := (lbl, s) :: !string_constants;
         movq (imm 3) !%rdi ++
@@ -98,19 +51,27 @@ let rec compile_expr = function
         leaq (lab lbl) rbx ++
         movq !%rbx (ind ~ofs:(-24) rax)
       )
-  | TEvar v ->
-      let current_var_table = Stack.top var_table_stack in
-      (match Hashtbl.find_opt current_var_table v.v_name with
-       | Some stack_offset ->
-           (* Generate code to load the variable's value from the stack *)
-           movq (ind ~ofs:stack_offset rbp) !%rax
-       | None ->
-           failwith ("Variable " ^ v.v_name ^ " not found in symbol table"))
+  | TEvar v -> movq (ind ~ofs:v.v_ofs rbp) !%rax
+  | TEbinop (Badd, TEcst (Cstring s1), TEcst (Cstring s2)) ->
+      current_stack_offset := !current_stack_offset - 24;
+      let lbl1 = new_label () in
+      let lbl2 = new_label () in
+      string_constants := (lbl1, s1) :: (lbl2, s2) :: !string_constants;
+      leaq (lab lbl2) rsi ++
+      leaq (lab lbl1) rdi ++
+      movq (imm 0) !%rax ++
+      call "strcat" ++
+      movq (imm 3) !%rdi ++
+      pushq !%rax ++
+      call "my_malloc" ++
+      movq (imm 3) (ind ~ofs:(-8) rax) ++
+      movq (imm ((String.length s1) + (String.length s2))) (ind ~ofs:(-16) rax) ++
+      popq rbx ++
+      movq !%rbx (ind ~ofs:(-24) rax)
   | TEbinop (op, lhs, rhs) -> 
     (match op with
       | Badd ->
-          let end_label = new_label () in
-          let string_label = new_label () in
+          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -123,28 +84,14 @@ let rec compile_expr = function
           movq (ind ~ofs:(-16) r10) !%r14 ++
           addq !%r13 !%r14 ++
           cmpq (imm 3) !%r11 ++
-          je string_label ++
           cmpq (imm 2) !%r11 ++
           jne "error" ++
           movq (imm 2) !%rdi ++
           call "my_malloc" ++
           movq (imm 2) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax) ++
-          jmp end_label ++
-          
-          label string_label ++
-          movq (ind ~ofs:(-24) rax) !%rdi ++
-          movq (ind ~ofs:(-24) r10) !%rsi ++
-          movq (imm 0) !%rax ++
-          call "strcat" ++
-          movq !%rax !%r10 ++
-          movq (imm 3) !%rdi ++
-          call "my_malloc" ++
-          movq (imm 3) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax) ++
-          movq !%r10 (ind ~ofs:(-24) rax) ++
-          label end_label
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Bsub ->
+          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -163,6 +110,7 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Bmul ->
+          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -181,6 +129,7 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Bdiv ->
+          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -202,6 +151,7 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Bmod ->
+          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -223,6 +173,7 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Beq ->
+          current_stack_offset := !current_stack_offset - 16;
           let string_label = new_label () in
           let end_label = new_label () in
           compile_expr lhs ++
@@ -259,6 +210,7 @@ let rec compile_expr = function
           movq !%r14 (ind ~ofs:(-16) rax) ++
           label end_label
       | Bneq ->
+        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -295,6 +247,7 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Blt ->
+        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -331,6 +284,7 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Ble ->
+        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -368,6 +322,7 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Bgt ->
+        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -404,6 +359,7 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Bge ->
+        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -440,6 +396,7 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Band ->
+          current_stack_offset := !current_stack_offset - 16;
           let false_label = new_label () in
           let end_label = new_label () in
           compile_expr lhs ++
@@ -462,6 +419,7 @@ let rec compile_expr = function
           movq (imm 0) (ind ~ofs:(-16) rax) ++
           label end_label
       | Bor ->
+          current_stack_offset := !current_stack_offset - 16;
           let true_label = new_label () in
           let end_label = new_label () in
           compile_expr lhs ++
@@ -511,7 +469,11 @@ let rec compile_stmt = function
       compile_stmt else_branch ++
       X86_64.label end_label
   | TSreturn e -> failwith "Return statements are not supported in code generation"
-  | TSassign (v, e) -> failwith "Variable assignment is not supported in code generation"
+  | TSassign (v, e) -> 
+    current_stack_offset := !current_stack_offset - 8;
+    v.v_ofs <- !current_stack_offset;
+    compile_expr e ++
+    movq !%rax (ind ~ofs:v.v_ofs rbp)
   | TSprint e -> 
     let print_none = new_label () in
     let print_bool = new_label () in
@@ -572,7 +534,6 @@ let rec compile_stmt = function
   | TSset (collection, index, value) -> failwith "List assignment is not supported in code generation"
 
 let compile_def (fn, body) =
-  enter_scope ();
   current_fn_name := fn.fn_name;
   let code = 
     pushq !%rbp ++
@@ -585,7 +546,6 @@ let compile_def (fn, body) =
     leave ++
     ret
   in
-  exit_scope ();
   label fn.fn_name ++ code
 
 let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
@@ -619,4 +579,4 @@ let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
     X86_64.label "none_str" ++
     string "None\n"
     in
-  { text = text_section; data = data_section }
+  { text = text_section; data = data_section ++ inline ".section .note.GNU-stack,\"\",@progbits\n" }
