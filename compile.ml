@@ -494,6 +494,12 @@ let rec compile_stmt = function
     let false_label = new_label () in
     let print_list_loop = new_label () in
     let print_list_end = new_label () in
+    let print_list_none = new_label () in
+    let print_list_bool = new_label () in
+    let print_list_bool_false = new_label () in
+    let print_list_int = new_label () in
+    let print_list_str = new_label () in
+    let print_list_continue = new_label () in
     let save_print_reg = 
       pushq !%rax ++
       pushq !%r10 ++
@@ -532,15 +538,65 @@ let rec compile_stmt = function
     imulq (imm 8) !%r12 ++
     movq !%rax !%r13 ++
     subq !%r12 !%r13 ++
-    
     movq (ind r13) !%r12 ++
+    movq (ind ~ofs:(-8) r12) !%rsi ++
+    cmpq (imm 0) !%rsi ++
+    je print_list_none ++
+    cmpq (imm 1) !%rsi ++
+    je print_list_bool ++
+    cmpq (imm 2) !%rsi ++
+    je print_list_int ++
+    cmpq (imm 3) !%rsi ++
+    je print_list_str ++
+    cmpq (imm 4) !%rsi ++
+    jne "error" ++
+    (* TODO *)
+
+    label print_list_none ++
+    leaq (lab "none_str") rdi ++
+    save_print_reg ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    restore_print_reg ++
+    jmp print_list_continue ++
+
+    label print_list_bool ++
+    save_print_reg ++
+    movq (ind ~ofs:(-16) r12) !%rax ++
+    testq !%rax !%rax ++
+    jz print_list_bool_false ++
+    leaq (lab "true_str") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    restore_print_reg ++
+    jmp print_list_continue ++
+    label print_list_bool_false ++
+    leaq (lab "false_str") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    restore_print_reg ++
+    jmp print_list_continue ++
+    
+    label print_list_int ++
     movq (ind ~ofs:(-16) r12) !%rsi ++
     leaq (lab "fmt_int") rdi ++
     save_print_reg ++
     movq (imm 0) !%rax ++
     call "printf" ++
     restore_print_reg ++
-    
+    jmp print_list_continue ++
+
+    label print_list_str ++
+    movq (ind ~ofs:(-24) r12) !%rsi ++
+    leaq (lab "fmt_str") rdi ++
+    save_print_reg ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    restore_print_reg ++
+    jmp print_list_continue ++
+
+
+    label print_list_continue ++
     movq !%r11 !%r12 ++
     addq (imm 1) !%r12 ++
     cmpq !%r12 !%r10 ++

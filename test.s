@@ -3,10 +3,10 @@
 main:
 	pushq %rbp
 	movq %rsp, %rbp
-	movq $5, %rdi
+	movq $7, %rdi
 	call my_malloc
 	movq $4, -8(%rax)
-	movq $3, -16(%rax)
+	movq $5, -16(%rax)
 	movq %rax, %rbx
 	pushq %rbx
 	movq $2, %rdi
@@ -16,19 +16,37 @@ main:
 	popq %rbx
 	movq %rax, -24(%rbx)
 	pushq %rbx
-	movq $2, %rdi
+	movq $3, %rdi
 	call my_malloc
-	movq $2, -8(%rax)
-	movq $2, -16(%rax)
+	movq $3, -8(%rax)
+	movq $1, -16(%rax)
+	leaq L15, %rbx
+	movq %rbx, -24(%rax)
 	popq %rbx
 	movq %rax, -32(%rbx)
 	pushq %rbx
 	movq $2, %rdi
 	call my_malloc
-	movq $2, -8(%rax)
-	movq $3, -16(%rax)
+	movq $1, -8(%rax)
+	movq $1, -16(%rax)
 	popq %rbx
 	movq %rax, -40(%rbx)
+	pushq %rbx
+	movq $3, %rdi
+	call my_malloc
+	movq $3, -8(%rax)
+	movq $1, -16(%rax)
+	leaq L14, %rbx
+	movq %rbx, -24(%rax)
+	popq %rbx
+	movq %rax, -48(%rbx)
+	pushq %rbx
+	movq $2, %rdi
+	call my_malloc
+	movq $0, -8(%rax)
+	movq $0, -16(%rax)
+	popq %rbx
+	movq %rax, -56(%rbx)
 	movq %rbx, %rax
 	movq -8(%rax), %r10
 	cmpq $0, %r10
@@ -57,6 +75,51 @@ L6:
 	movq %rax, %r13
 	subq %r12, %r13
 	movq 0(%r13), %r12
+	movq -8(%r12), %rsi
+	cmpq $0, %rsi
+	je L8
+	cmpq $1, %rsi
+	je L9
+	cmpq $2, %rsi
+	je L11
+	cmpq $3, %rsi
+	je L12
+	cmpq $4, %rsi
+	jne error
+L8:
+	leaq none_str, %rdi
+	pushq %rax
+	pushq %r10
+	pushq %r11
+	movq $0, %rax
+	call printf
+	popq %r11
+	popq %r10
+	popq %rax
+	jmp L13
+L9:
+	pushq %rax
+	pushq %r10
+	pushq %r11
+	movq -16(%r12), %rax
+	testq %rax, %rax
+	jz L10
+	leaq true_str, %rdi
+	movq $0, %rax
+	call printf
+	popq %r11
+	popq %r10
+	popq %rax
+	jmp L13
+L10:
+	leaq false_str, %rdi
+	movq $0, %rax
+	call printf
+	popq %r11
+	popq %r10
+	popq %rax
+	jmp L13
+L11:
 	movq -16(%r12), %rsi
 	leaq fmt_int, %rdi
 	pushq %rax
@@ -67,6 +130,20 @@ L6:
 	popq %r11
 	popq %r10
 	popq %rax
+	jmp L13
+L12:
+	movq -24(%r12), %rsi
+	leaq fmt_str, %rdi
+	pushq %rax
+	pushq %r10
+	pushq %r11
+	movq $0, %rax
+	call printf
+	popq %r11
+	popq %r10
+	popq %rax
+	jmp L13
+L13:
 	movq %r11, %r12
 	addq $1, %r12
 	cmpq %r12, %r10
@@ -136,6 +213,10 @@ my_malloc:
 	popq %rbp
 	ret
 	.data
+L15:
+	.string "2"
+L14:
+	.string "4"
 fmt_int:
 	.string "%d"
 fmt_str:
