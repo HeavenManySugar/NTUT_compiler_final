@@ -9,20 +9,49 @@ main:
 	movq $4, -8(%rax)
 	movq $3, -16(%rax)
 	movq %rax, %rbx
+	pushq %rbx
 	movq $2, %rdi
 	call my_malloc
 	movq $2, -8(%rax)
-	movq $111, -16(%rax)
+	movq $0, -16(%rax)
+	popq %rbx
 	movq %rax, -24(%rbx)
+	pushq %rbx
+	movq $5, %rdi
+	call my_malloc
+	movq $4, -8(%rax)
+	movq $3, -16(%rax)
+	movq %rax, %rbx
+	pushq %rbx
 	movq $2, %rdi
 	call my_malloc
 	movq $2, -8(%rax)
-	movq $222, -16(%rax)
+	movq $0, -16(%rax)
+	popq %rbx
+	movq %rax, -24(%rbx)
+	pushq %rbx
+	movq $2, %rdi
+	call my_malloc
+	movq $2, -8(%rax)
+	movq $1, -16(%rax)
+	popq %rbx
 	movq %rax, -32(%rbx)
+	pushq %rbx
 	movq $2, %rdi
 	call my_malloc
 	movq $2, -8(%rax)
-	movq $333, -16(%rax)
+	movq $42, -16(%rax)
+	popq %rbx
+	movq %rax, -40(%rbx)
+	movq %rbx, %rax
+	popq %rbx
+	movq %rax, -32(%rbx)
+	pushq %rbx
+	movq $2, %rdi
+	call my_malloc
+	movq $2, -8(%rax)
+	movq $1, -16(%rax)
+	popq %rbx
 	movq %rax, -40(%rbx)
 	movq %rbx, %rax
 	movq %rax, -8(%rbp)
@@ -33,7 +62,19 @@ main:
 	movq -16(%rax), %rax
 	addq $3, %rax
 	pushq %rax
+	movq $2, %rdi
+	call my_malloc
+	movq $2, -8(%rax)
+	movq $1, -16(%rax)
+	movq -16(%rax), %rax
+	addq $3, %rax
+	pushq %rax
 	movq -8(%rbp), %rax
+	popq %rbx
+	movq %rax, %rcx
+	imulq $8, %rbx
+	subq %rbx, %rcx
+	movq 0(%rcx), %rax
 	popq %rbx
 	movq %rax, %rcx
 	imulq $8, %rbx

@@ -443,7 +443,9 @@ let rec compile_expr = function
         let rec compile_elements i = function
           | [] -> nop
           | e :: es -> 
+              pushq !%rbx ++
               compile_expr e ++
+              popq rbx ++
               movq !%rax (ind ~ofs:(-8 * (i + 3)) rbx) ++
               compile_elements (i + 1) es
         in
