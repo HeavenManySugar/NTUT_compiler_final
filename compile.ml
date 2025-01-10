@@ -122,7 +122,6 @@ let rec compile_expr = function
           movq (ind ~ofs:(-16) rax) !%r13 ++
           movq (ind ~ofs:(-16) r10) !%r14 ++
           addq !%r13 !%r14 ++
-          movq !%r14 (ind ~ofs:(-16) rax) ++
           cmpq (imm 3) !%r11 ++
           je string_label ++
           cmpq (imm 2) !%r11 ++
@@ -136,11 +135,9 @@ let rec compile_expr = function
           label string_label ++
           movq (ind ~ofs:(-24) rax) !%rdi ++
           movq (ind ~ofs:(-24) r10) !%rsi ++
-          pushq !%rax ++
           movq (imm 0) !%rax ++
           call "strcat" ++
           movq !%rax !%r10 ++
-          popq rax ++
           movq (imm 3) !%rdi ++
           call "my_malloc" ++
           movq (imm 3) (ind ~ofs:(-8) rax) ++
@@ -226,89 +223,222 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Beq ->
+          let string_label = new_label () in
+          let end_label = new_label () in
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind ~ofs:(-16) rax) !%r11 ++
-          movq (ind ~ofs:(-16) r10) !%r12 ++
+          movq (ind ~ofs:(-8) rax) !%r11 ++
+          movq (ind ~ofs:(-8) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
+          jne "error" ++
+          cmpq (imm 3) !%r11 ++
+          je string_label ++
+          movq (ind ~ofs:(-16) rax) !%r13 ++
+          movq (ind ~ofs:(-16) r10) !%r14 ++
+          cmpq !%r13 !%r14 ++
           sete !%al ++
           movzbq !%al r14 ++
           movq (imm 2) !%rdi ++
           call "my_malloc" ++
           movq (imm 1) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax)
+          movq !%r14 (ind ~ofs:(-16) rax) ++
+          jmp end_label ++
+          label string_label ++
+          movq (ind ~ofs:(-24) rax) !%rdi ++
+          movq (ind ~ofs:(-24) r10) !%rsi ++
+          movq (imm 0) !%rax ++
+          call "strcmp" ++
+          cmpq (imm 0) !%rax ++
+          sete !%al ++
+          movzbq !%al r14 ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax) ++
+          label end_label
       | Bneq ->
-          compile_expr lhs ++
-          pushq !%rax ++
-          compile_expr rhs ++
-          popq r10 ++
-          movq (ind ~ofs:(-16) rax) !%r11 ++
-          movq (ind ~ofs:(-16) r10) !%r12 ++
-          cmpq !%r11 !%r12 ++
-          setne !%al ++
-          movzbq !%al r14 ++
-          movq (imm 2) !%rdi ++
-          call "my_malloc" ++
-          movq (imm 1) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax)
+        let string_label = new_label () in
+        let end_label = new_label () in
+        compile_expr lhs ++
+        pushq !%rax ++
+        compile_expr rhs ++
+        popq r10 ++
+        movq (ind ~ofs:(-8) rax) !%r11 ++
+        movq (ind ~ofs:(-8) r10) !%r12 ++
+        cmpq !%r11 !%r12 ++
+        jne "error" ++
+        cmpq (imm 3) !%r11 ++
+        je string_label ++
+        movq (ind ~ofs:(-16) rax) !%r13 ++
+        movq (ind ~ofs:(-16) r10) !%r14 ++
+        cmpq !%r13 !%r14 ++
+        setne !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        jmp end_label ++
+        label string_label ++
+        movq (ind ~ofs:(-24) rax) !%rdi ++
+        movq (ind ~ofs:(-24) r10) !%rsi ++
+        movq (imm 0) !%rax ++
+        call "strcmp" ++
+        cmpq (imm 0) !%rax ++
+        setne !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        label end_label
       | Blt ->
-          compile_expr lhs ++
-          pushq !%rax ++
-          compile_expr rhs ++
-          popq r10 ++
-          movq (ind ~ofs:(-16) rax) !%r11 ++
-          movq (ind ~ofs:(-16) r10) !%r12 ++
-          cmpq !%r11 !%r12 ++
-          setl !%al ++
-          movzbq !%al r14 ++
-          movq (imm 2) !%rdi ++
-          call "my_malloc" ++
-          movq (imm 1) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax)
+        let string_label = new_label () in
+        let end_label = new_label () in
+        compile_expr lhs ++
+        pushq !%rax ++
+        compile_expr rhs ++
+        popq r10 ++
+        movq (ind ~ofs:(-8) rax) !%r11 ++
+        movq (ind ~ofs:(-8) r10) !%r12 ++
+        cmpq !%r11 !%r12 ++
+        jne "error" ++
+        cmpq (imm 3) !%r11 ++
+        je string_label ++
+        movq (ind ~ofs:(-16) rax) !%r13 ++
+        movq (ind ~ofs:(-16) r10) !%r14 ++
+        cmpq !%r13 !%r14 ++
+        setl !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        jmp end_label ++
+        label string_label ++
+        movq (ind ~ofs:(-24) rax) !%rdi ++
+        movq (ind ~ofs:(-24) r10) !%rsi ++
+        movq (imm 0) !%rax ++
+        call "strcmp" ++
+        cmpq (imm 0) !%rax ++
+        setg !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        label end_label
       | Ble ->
-          compile_expr lhs ++
-          pushq !%rax ++
-          compile_expr rhs ++
-          popq r10 ++
-          movq (ind ~ofs:(-16) rax) !%r11 ++
-          movq (ind ~ofs:(-16) r10) !%r12 ++
-          cmpq !%r11 !%r12 ++
-          setle !%al ++
-          movzbq !%al r14 ++
-          movq (imm 2) !%rdi ++
-          call "my_malloc" ++
-          movq (imm 1) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax)
+        let string_label = new_label () in
+        let end_label = new_label () in
+        compile_expr lhs ++
+        pushq !%rax ++
+        compile_expr rhs ++
+        popq r10 ++
+        movq (ind ~ofs:(-8) rax) !%r11 ++
+        movq (ind ~ofs:(-8) r10) !%r12 ++
+        cmpq !%r11 !%r12 ++
+        jne "error" ++
+        cmpq (imm 3) !%r11 ++
+        je string_label ++
+        movq (ind ~ofs:(-16) rax) !%r13 ++
+        movq (ind ~ofs:(-16) r10) !%r14 ++
+        cmpq !%r13 !%r14 ++
+        setle !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        jmp end_label ++
+        label string_label ++
+        movq (ind ~ofs:(-24) rax) !%rdi ++
+        movq (ind ~ofs:(-24) r10) !%rsi ++
+        movq (imm 0) !%rax ++
+        call "strcmp" ++
+        cmpq (imm 0) !%rax ++
+        setle !%al ++
+        movzbq !%al r13 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        orq !%r13 !%r14 ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        label end_label
       | Bgt ->
-          compile_expr lhs ++
-          pushq !%rax ++
-          compile_expr rhs ++
-          popq r10 ++
-          movq (ind ~ofs:(-16) rax) !%r11 ++
-          movq (ind ~ofs:(-16) r10) !%r12 ++
-          cmpq !%r11 !%r12 ++
-          setg !%al ++
-          movzbq !%al r14 ++
-          movq (imm 2) !%rdi ++
-          call "my_malloc" ++
-          movq (imm 1) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax)
+        let string_label = new_label () in
+        let end_label = new_label () in
+        compile_expr lhs ++
+        pushq !%rax ++
+        compile_expr rhs ++
+        popq r10 ++
+        movq (ind ~ofs:(-8) rax) !%r11 ++
+        movq (ind ~ofs:(-8) r10) !%r12 ++
+        cmpq !%r11 !%r12 ++
+        jne "error" ++
+        cmpq (imm 3) !%r11 ++
+        je string_label ++
+        movq (ind ~ofs:(-16) rax) !%r13 ++
+        movq (ind ~ofs:(-16) r10) !%r14 ++
+        cmpq !%r13 !%r14 ++
+        setg !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        jmp end_label ++
+        label string_label ++
+        movq (ind ~ofs:(-24) rax) !%rdi ++
+        movq (ind ~ofs:(-24) r10) !%rsi ++
+        movq (imm 0) !%rax ++
+        call "strcmp" ++
+        cmpq (imm 0) !%rax ++
+        setl !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        label end_label
       | Bge ->
-          compile_expr lhs ++
-          pushq !%rax ++
-          compile_expr rhs ++
-          popq r10 ++
-          movq (ind ~ofs:(-16) rax) !%r11 ++
-          movq (ind ~ofs:(-16) r10) !%r12 ++
-          cmpq !%r11 !%r12 ++
-          setge !%al ++
-          movzbq !%al r14 ++
-          movq (imm 2) !%rdi ++
-          call "my_malloc" ++
-          movq (imm 1) (ind ~ofs:(-8) rax) ++
-          movq !%r14 (ind ~ofs:(-16) rax)
+        let string_label = new_label () in
+        let end_label = new_label () in
+        compile_expr lhs ++
+        pushq !%rax ++
+        compile_expr rhs ++
+        popq r10 ++
+        movq (ind ~ofs:(-8) rax) !%r11 ++
+        movq (ind ~ofs:(-8) r10) !%r12 ++
+        cmpq !%r11 !%r12 ++
+        jne "error" ++
+        cmpq (imm 3) !%r11 ++
+        je string_label ++
+        movq (ind ~ofs:(-16) rax) !%r13 ++
+        movq (ind ~ofs:(-16) r10) !%r14 ++
+        cmpq !%r13 !%r14 ++
+        setge !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        jmp end_label ++
+        label string_label ++
+        movq (ind ~ofs:(-24) rax) !%rdi ++
+        movq (ind ~ofs:(-24) r10) !%rsi ++
+        movq (imm 0) !%rax ++
+        call "strcmp" ++
+        cmpq (imm 0) !%rax ++
+        setle !%al ++
+        movzbq !%al r14 ++
+        movq (imm 2) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq !%r14 (ind ~ofs:(-16) rax) ++
+        label end_label
       | Band ->
           let false_label = new_label () in
           let end_label = new_label () in
