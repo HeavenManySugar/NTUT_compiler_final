@@ -433,10 +433,35 @@ let rec compile_expr = function
           movq (ind ~ofs:(-16) rax) !%rax
       | _ ->
         failwith "Function calls are not supported in code generation")
-  | TElist elements -> failwith "Lists are not supported in code generation"
-  | TErange _ -> failwith "Range is not supported in code generation"
-  | TEget (list_expr, index_expr) -> failwith "List indexing is not supported in code generation"
-
+        | TElist elements -> 
+        let num_elements = List.length elements in
+        movq (imm (num_elements + 2)) !%rdi ++
+        call "my_malloc" ++
+        movq (imm 4) (ind ~ofs:(-8) rax) ++
+        movq (imm num_elements) (ind ~ofs:(-16) rax) ++
+        movq !%rax !%rbx ++
+        let rec compile_elements i = function
+          | [] -> nop
+          | e :: es -> 
+              compile_expr e ++
+              movq !%rax (ind ~ofs:(-8 * (i + 3)) rbx) ++
+              compile_elements (i + 1) es
+        in
+        compile_elements 0 elements ++
+        movq !%rbx !%rax
+    | TErange _ -> failwith "Range is not supported in code generation"
+    | TEget (list_expr, index_expr) -> 
+        compile_expr index_expr ++
+        movq (ind ~ofs:(-16) rax) !%rax ++
+        addq (imm 3) !%rax ++ 
+        pushq !%rax ++
+        compile_expr list_expr ++
+        popq rbx ++
+        movq !%rax !%rcx ++
+        imulq (imm 8) !%rbx ++ 
+        subq !%rbx !%rcx ++
+        movq (ind ~ofs:0 rcx) !%rax 
+  
 (* Example of updating stack offset during variable assignment *)
 let rec compile_stmt = function
   | TSif (cond, then_branch, else_branch) ->

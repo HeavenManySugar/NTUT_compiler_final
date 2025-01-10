@@ -1,6 +1,2 @@
-a = 1
-b = 5
-c = 10
-print(b)
-print(a)
-print(c)
+x = [111, 222, 333]
+print(x[2])
