@@ -441,6 +441,57 @@ let rec compile_expr = function
       | "len" ->
           compile_expr (List.hd args) ++
           movq (ind ~ofs:(-16) rax) !%rax
+      | "list" ->
+        if List.length args = 1
+        then (
+          let code = compile_expr (List.hd args) in
+          let end_label = new_label () in
+          let loop_label = new_label () in
+          let save_register = 
+            pushq !%r11 ++
+            pushq !%r12 ++
+            pushq !%r13 ++
+            pushq !%rax in
+          let restore_register =
+            popq rax ++
+            popq r13 ++
+            popq r12 ++
+            popq r11 in
+          code ++
+          movq (ind ~ofs:(-16) rax) !%r10 ++
+          movq (imm 2) !%r11 ++
+          movq !%r11 !%rdi ++
+          call "my_malloc" ++
+          movq (imm 4) (ind ~ofs:(-8) rax) ++
+          movq !%r10 (ind ~ofs:(-16) rax) ++
+
+          movq (imm 0) !%r11 ++
+
+
+          (* Create list *)
+          label loop_label ++
+          cmpq !%r11 !%r10 ++
+          jle end_label ++
+          movq !%rax !%r12 ++
+          movq !%r11 !%r13 ++
+          addq (imm 3) !%r13 ++
+          imulq (imm 8) !%r13 ++
+          subq !%r13 !%r12 ++
+
+          save_register ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq !%rax !%rbx ++
+          restore_register ++
+          movq (imm 2) (ind ~ofs:(-8) rbx) ++
+          movq !%r11 (ind ~ofs:(-16) rbx) ++
+          movq !%rbx (ind ~ofs:0 r12) ++
+          incq !%r11 ++
+          jmp loop_label ++
+          
+          label end_label
+        )
+        else failwith "list function takes exactly one argument"
       | _ ->
         failwith "Function calls are not supported in code generation")
   | TElist elements -> 
@@ -465,7 +516,16 @@ let rec compile_expr = function
       movq !%rbx !%rax ++
       popq rdi ++
       popq rbx
-  | TErange _ -> failwith "Range is not supported in code generation"
+  | TErange e -> 
+      compile_expr e ++
+      movq (ind ~ofs:(-8) rax) !%r10 ++
+      cmpq (imm 2) !%r10 ++
+      jne "error" ++
+      movq (ind ~ofs:(-16) rax) !%r10 ++
+      movq (imm 2) !%rdi ++
+      call "my_malloc" ++
+      movq (imm 5) (ind  ~ofs:(-8) rax) ++
+      movq !%r10 (ind ~ofs:(-16) rax)
   | TEget (list_expr, index_expr) -> 
       let c1 = compile_expr index_expr in
       let c2 = compile_expr list_expr in
