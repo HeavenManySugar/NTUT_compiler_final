@@ -23,25 +23,21 @@ let rec compile_expr = function
   | TEcst c ->
     (match c with
       | Cnone -> 
-        current_stack_offset := !current_stack_offset - 16;
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 0) (ind ~ofs:(-8) rax) ++
         movq (imm 0) (ind ~ofs:(-16) rax) 
       | Cbool b ->
-        current_stack_offset := !current_stack_offset - 16;
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 1) (ind ~ofs:(-8) rax) ++
         movq (imm (if b then 1 else 0)) (ind ~ofs:(-16) rax) 
       | Cint i -> 
-        current_stack_offset := !current_stack_offset - 16;
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
         movq (imm 2) (ind ~ofs:(-8) rax) ++
         movq (imm64 i) (ind ~ofs:(-16) rax) 
       | Cstring s ->
-        current_stack_offset := !current_stack_offset - 24;
         let lbl = new_label () in
         string_constants := (lbl, s) :: !string_constants;
         movq (imm 3) !%rdi ++
@@ -53,7 +49,6 @@ let rec compile_expr = function
       )
   | TEvar v -> movq (ind ~ofs:v.v_ofs rbp) !%rax
   | TEbinop (Badd, TEcst (Cstring s1), TEcst (Cstring s2)) ->
-      current_stack_offset := !current_stack_offset - 24;
       let lbl1 = new_label () in
       let lbl2 = new_label () in
       string_constants := (lbl1, s1) :: (lbl2, s2) :: !string_constants;
@@ -71,7 +66,6 @@ let rec compile_expr = function
   | TEbinop (op, lhs, rhs) -> 
     (match op with
       | Badd ->
-          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -91,7 +85,6 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Bsub ->
-          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -110,7 +103,6 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Bmul ->
-          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -129,7 +121,6 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Bdiv ->
-          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -151,7 +142,6 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Bmod ->
-          current_stack_offset := !current_stack_offset - 16;
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
@@ -173,7 +163,6 @@ let rec compile_expr = function
           movq (imm 2) (ind ~ofs:(-8) rax) ++
           movq !%r14 (ind ~ofs:(-16) rax)
       | Beq ->
-          current_stack_offset := !current_stack_offset - 16;
           let string_label = new_label () in
           let end_label = new_label () in
           compile_expr lhs ++
@@ -210,7 +199,6 @@ let rec compile_expr = function
           movq !%r14 (ind ~ofs:(-16) rax) ++
           label end_label
       | Bneq ->
-        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -247,7 +235,6 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Blt ->
-        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -284,7 +271,6 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Ble ->
-        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -322,7 +308,6 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Bgt ->
-        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -359,7 +344,6 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Bge ->
-        current_stack_offset := !current_stack_offset - 16;
         let string_label = new_label () in
         let end_label = new_label () in
         compile_expr lhs ++
@@ -396,7 +380,6 @@ let rec compile_expr = function
         movq !%r14 (ind ~ofs:(-16) rax) ++
         label end_label
       | Band ->
-          current_stack_offset := !current_stack_offset - 16;
           let false_label = new_label () in
           let end_label = new_label () in
           compile_expr lhs ++
@@ -419,7 +402,6 @@ let rec compile_expr = function
           movq (imm 0) (ind ~ofs:(-16) rax) ++
           label end_label
       | Bor ->
-          current_stack_offset := !current_stack_offset - 16;
           let true_label = new_label () in
           let end_label = new_label () in
           compile_expr lhs ++
@@ -470,9 +452,11 @@ let rec compile_stmt = function
       X86_64.label end_label
   | TSreturn e -> failwith "Return statements are not supported in code generation"
   | TSassign (v, e) -> 
+    let r = compile_expr e in
     current_stack_offset := !current_stack_offset - 8;
     v.v_ofs <- !current_stack_offset;
-    compile_expr e ++
+    subq (imm 8) !%rsp ++
+    r ++ 
     movq !%rax (ind ~ofs:v.v_ofs rbp)
   | TSprint e -> 
     let print_none = new_label () in
