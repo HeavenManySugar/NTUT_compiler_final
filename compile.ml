@@ -492,6 +492,16 @@ let rec compile_stmt = function
     let print_str = new_label () in
     let print_end = new_label () in
     let false_label = new_label () in
+    let print_list_loop = new_label () in
+    let print_list_end = new_label () in
+    let save_print_reg = 
+      pushq !%rax ++
+      pushq !%r10 ++
+      pushq !%r11 in
+    let restore_print_reg = 
+      popq r11 ++
+      popq r10 ++
+      popq rax in
     compile_expr e ++
     movq (ind ~ofs:(-8) rax) !%r10 ++
     cmpq (imm 0) !%r10 ++
@@ -504,6 +514,50 @@ let rec compile_stmt = function
     je print_str ++
     cmpq (imm 4) !%r10 ++
     jne "error" ++
+
+    pushq !%rax ++
+    leaq (lab "open_bracket") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    popq rax ++
+    movq (ind ~ofs:(-16) rax) !%r10 ++
+    movq (imm 0) !%r11 ++
+
+    label (print_list_loop) ++
+    cmpq !%r10 !%r11 ++
+    jge (print_list_end) ++
+
+    movq !%r11 !%r12 ++
+    addq (imm 3) !%r12 ++
+    imulq (imm 8) !%r12 ++
+    movq !%rax !%r13 ++
+    subq !%r12 !%r13 ++
+    
+    movq (ind r13) !%r12 ++
+    movq (ind ~ofs:(-16) r12) !%rsi ++
+    leaq (lab "fmt_int") rdi ++
+    save_print_reg ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    restore_print_reg ++
+    
+    movq !%r11 !%r12 ++
+    addq (imm 1) !%r12 ++
+    cmpq !%r12 !%r10 ++
+    je (print_list_end) ++
+    leaq (lab "comma") rdi ++
+    save_print_reg ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    restore_print_reg ++
+
+    addq (imm 1) !%r11 ++
+    jmp (print_list_loop) ++
+    label (print_list_end)++
+    leaq (lab "close_bracket") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+    jmp print_end ++
 
     label print_none ++
     leaq (lab "none_str") rdi ++
@@ -538,7 +592,10 @@ let rec compile_stmt = function
     movq (imm 0) !%rax ++
     call "printf" ++
 
-    label print_end 
+    label print_end ++
+    leaq (lab "endl_str") rdi ++
+    movq (imm 0) !%rax ++
+    call "printf" 
   | TSblock stmts -> List.fold_left (++) nop (List.map compile_stmt stmts)
   | TSfor (v, collection, body) -> failwith "For loops are not supported in code generation"
   | TSeval e -> compile_expr e
@@ -580,14 +637,22 @@ let file ?debug:(b=false) (p: Ast.tfile) : X86_64.program =
   let data_section = 
     List.fold_left (fun acc (lbl, str) -> acc ++ X86_64.label lbl ++ string str) nop !string_constants ++
     X86_64.label "fmt_int" ++
-    string "%d\n" ++
+    string "%d" ++
     X86_64.label "fmt_str" ++
-    string "%s\n" ++
+    string "%s" ++
     X86_64.label "true_str" ++
-    string "True\n" ++
+    string "True" ++
     X86_64.label "false_str" ++
-    string "False\n" ++
+    string "False" ++
     X86_64.label "none_str" ++
-    string "None\n"
+    string "None" ++
+    X86_64.label "open_bracket" ++
+    string "[" ++
+    X86_64.label "close_bracket" ++
+    string "]" ++
+    X86_64.label "endl_str" ++
+    string "\n" ++
+    X86_64.label "comma" ++
+    string ", " 
     in
   { text = text_section; data = data_section ++ inline ".section .note.GNU-stack,\"\",@progbits\n" }

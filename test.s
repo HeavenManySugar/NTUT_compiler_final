@@ -3,7 +3,6 @@
 main:
 	pushq %rbp
 	movq %rsp, %rbp
-	subq $8, %rsp
 	movq $5, %rdi
 	call my_malloc
 	movq $4, -8(%rax)
@@ -13,73 +12,24 @@ main:
 	movq $2, %rdi
 	call my_malloc
 	movq $2, -8(%rax)
-	movq $0, -16(%rax)
+	movq $1, -16(%rax)
 	popq %rbx
 	movq %rax, -24(%rbx)
 	pushq %rbx
-	movq $5, %rdi
-	call my_malloc
-	movq $4, -8(%rax)
-	movq $3, -16(%rax)
-	movq %rax, %rbx
-	pushq %rbx
-	movq $2, %rdi
-	call my_malloc
-	movq $2, -8(%rax)
-	movq $0, -16(%rax)
-	popq %rbx
-	movq %rax, -24(%rbx)
-	pushq %rbx
-	movq $2, %rdi
-	call my_malloc
-	movq $2, -8(%rax)
-	movq $1, -16(%rax)
-	popq %rbx
-	movq %rax, -32(%rbx)
-	pushq %rbx
-	movq $2, %rdi
-	call my_malloc
-	movq $2, -8(%rax)
-	movq $42, -16(%rax)
-	popq %rbx
-	movq %rax, -40(%rbx)
-	movq %rbx, %rax
-	popq %rbx
-	movq %rax, -32(%rbx)
-	pushq %rbx
-	movq $2, %rdi
-	call my_malloc
-	movq $2, -8(%rax)
-	movq $1, -16(%rax)
-	popq %rbx
-	movq %rax, -40(%rbx)
-	movq %rbx, %rax
-	movq %rax, -8(%rbp)
 	movq $2, %rdi
 	call my_malloc
 	movq $2, -8(%rax)
 	movq $2, -16(%rax)
-	movq -16(%rax), %rax
-	addq $3, %rax
-	pushq %rax
+	popq %rbx
+	movq %rax, -32(%rbx)
+	pushq %rbx
 	movq $2, %rdi
 	call my_malloc
 	movq $2, -8(%rax)
-	movq $1, -16(%rax)
-	movq -16(%rax), %rax
-	addq $3, %rax
-	pushq %rax
-	movq -8(%rbp), %rax
+	movq $3, -16(%rax)
 	popq %rbx
-	movq %rax, %rcx
-	imulq $8, %rbx
-	subq %rbx, %rcx
-	movq 0(%rcx), %rax
-	popq %rbx
-	movq %rax, %rcx
-	imulq $8, %rbx
-	subq %rbx, %rcx
-	movq 0(%rcx), %rax
+	movq %rax, -40(%rbx)
+	movq %rbx, %rax
 	movq -8(%rax), %r10
 	cmpq $0, %r10
 	je L0
@@ -91,6 +41,52 @@ main:
 	je L3
 	cmpq $4, %r10
 	jne error
+	pushq %rax
+	leaq open_bracket, %rdi
+	movq $0, %rax
+	call printf
+	popq %rax
+	movq -16(%rax), %r10
+	movq $0, %r11
+L6:
+	cmpq %r10, %r11
+	jge L7
+	movq %r11, %r12
+	addq $3, %r12
+	imulq $8, %r12
+	movq %rax, %r13
+	subq %r12, %r13
+	movq 0(%r13), %r12
+	movq -16(%r12), %rsi
+	leaq fmt_int, %rdi
+	pushq %rax
+	pushq %r10
+	pushq %r11
+	movq $0, %rax
+	call printf
+	popq %r11
+	popq %r10
+	popq %rax
+	movq %r11, %r12
+	addq $1, %r12
+	cmpq %r12, %r10
+	je L7
+	leaq comma, %rdi
+	pushq %rax
+	pushq %r10
+	pushq %r11
+	movq $0, %rax
+	call printf
+	popq %r11
+	popq %r10
+	popq %rax
+	addq $1, %r11
+	jmp L6
+L7:
+	leaq close_bracket, %rdi
+	movq $0, %rax
+	call printf
+	jmp L4
 L0:
 	leaq none_str, %rdi
 	movq $0, %rax
@@ -121,6 +117,9 @@ L3:
 	movq $0, %rax
 	call printf
 L4:
+	leaq endl_str, %rdi
+	movq $0, %rax
+	call printf
 	movq $0, %rax
 	leave
 	ret
@@ -138,13 +137,21 @@ my_malloc:
 	ret
 	.data
 fmt_int:
-	.string "%d\n"
+	.string "%d"
 fmt_str:
-	.string "%s\n"
+	.string "%s"
 true_str:
-	.string "True\n"
+	.string "True"
 false_str:
-	.string "False\n"
+	.string "False"
 none_str:
-	.string "None\n"
+	.string "None"
+open_bracket:
+	.string "["
+close_bracket:
+	.string "]"
+endl_str:
+	.string "\n"
+comma:
+	.string ", "
 .section .note.GNU-stack,"",@progbits
