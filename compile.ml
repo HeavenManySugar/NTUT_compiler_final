@@ -76,27 +76,27 @@ let rec compile_expr = function
       | Cnone -> 
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
-        movq (imm 0) (ind rax) ++
-        movq (imm 0) (ind ~ofs:(-8) rax) 
+        movq (imm 0) (ind ~ofs:(-8) rax) ++
+        movq (imm 0) (ind ~ofs:(-16) rax) 
       | Cbool b ->
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
-        movq (imm 1) (ind rax) ++
-        movq (imm (if b then 1 else 0)) (ind ~ofs:(-8) rax) 
+        movq (imm 1) (ind ~ofs:(-8) rax) ++
+        movq (imm (if b then 1 else 0)) (ind ~ofs:(-16) rax) 
       | Cint i -> 
         movq (imm 2) !%rdi ++
         call "my_malloc" ++
-        movq (imm 2) (ind rax) ++
-        movq (imm64 i) (ind ~ofs:(-8) rax) 
+        movq (imm 2) (ind ~ofs:(-8) rax) ++
+        movq (imm64 i) (ind ~ofs:(-16) rax) 
       | Cstring s ->
         let lbl = new_label () in
         string_constants := (lbl, s) :: !string_constants;
         movq (imm 3) !%rdi ++
         call "my_malloc" ++
-        movq (imm 3) (ind rax) ++
-        movq (imm (String.length s)) (ind ~ofs:(-8) rax) ++
+        movq (imm 3) (ind ~ofs:(-8) rax) ++
+        movq (imm (String.length s)) (ind ~ofs:(-16) rax) ++
         leaq (lab lbl) rbx ++
-        movq !%rbx (ind ~ofs:(-16) rax)
+        movq !%rbx (ind ~ofs:(-24) rax)
       )
   | TEvar v ->
       let current_var_table = Stack.top var_table_stack in
@@ -109,150 +109,250 @@ let rec compile_expr = function
   | TEbinop (op, lhs, rhs) -> 
     (match op with
       | Badd ->
+          let end_label = new_label () in
+          let string_label = new_label () in
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-8) rax) !%r11 ++
+          movq (ind ~ofs:(-8) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           jne "error" ++
-          movq (ind ~ofs:(-8) rax) !%r13 ++
-          movq (ind ~ofs:(-8) r10) !%r14 ++
+          movq (ind ~ofs:(-16) rax) !%r13 ++
+          movq (ind ~ofs:(-16) r10) !%r14 ++
           addq !%r13 !%r14 ++
-          movq !%r14 (ind ~ofs:(-8) rax)
+          movq !%r14 (ind ~ofs:(-16) rax) ++
+          cmpq (imm 3) !%r11 ++
+          je string_label ++
+          cmpq (imm 2) !%r11 ++
+          jne "error" ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 2) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax) ++
+          jmp end_label ++
+          
+          label string_label ++
+          movq (ind ~ofs:(-24) rax) !%rdi ++
+          movq (ind ~ofs:(-24) r10) !%rsi ++
+          pushq !%rax ++
+          movq (imm 0) !%rax ++
+          call "strcat" ++
+          movq !%rax !%r10 ++
+          popq rax ++
+          movq (imm 3) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 3) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax) ++
+          movq !%r10 (ind ~ofs:(-24) rax) ++
+          label end_label
       | Bsub ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-8) rax) !%r11 ++
+          movq (ind ~ofs:(-8) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           jne "error" ++
-          movq (ind ~ofs:(-8) rax) !%r13 ++
-          movq (ind ~ofs:(-8) r10) !%r14 ++
+          movq (ind ~ofs:(-16) rax) !%r13 ++
+          movq (ind ~ofs:(-16) r10) !%r14 ++
           subq !%r13 !%r14 ++
-          movq !%r14 (ind ~ofs:(-8) rax)
+          cmpq (imm 2) !%r11 ++
+          jne "error" ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 2) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Bmul ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-8) rax) !%r11 ++
+          movq (ind ~ofs:(-8) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           jne "error" ++
-          movq (ind ~ofs:(-8) rax) !%r13 ++
-          movq (ind ~ofs:(-8) r10) !%r14 ++
+          movq (ind ~ofs:(-16) rax) !%r13 ++
+          movq (ind ~ofs:(-16) r10) !%r14 ++
           imulq !%r13 !%r14 ++
-          movq !%r14 (ind ~ofs:(-8) rax)
+          cmpq (imm 2) !%r11 ++
+          jne "error" ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 2) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Bdiv ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-8) rax) !%r11 ++
+          movq (ind ~ofs:(-8) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           jne "error" ++
-          movq (ind ~ofs:(-8) rax) !%r13 ++
-          movq (ind ~ofs:(-8) r10) !%r14 ++
+          movq (ind ~ofs:(-16) rax) !%r13 ++
+          movq (ind ~ofs:(-16) r10) !%r14 ++
+          movq !%r14 !%rax ++
           cqto ++
-          idivq !%r14 ++
-          movq !%rax (ind ~ofs:(-8) rax)
+          idivq !%r13 ++
+          movq !%rax !%r14 ++
+          cmpq (imm 2) !%r11 ++
+          jne "error" ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 2) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Bmod ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-8) rax) !%r11 ++
+          movq (ind ~ofs:(-8) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           jne "error" ++
-          movq (ind ~ofs:(-8) rax) !%r13 ++
-          movq (ind ~ofs:(-8) r10) !%r14 ++
+          movq (ind ~ofs:(-16) rax) !%r13 ++
+          movq (ind ~ofs:(-16) r10) !%r14 ++
+          movq !%r14 !%rax ++
           cqto ++
-          idivq !%r14 ++
-          movq !%rdx (ind ~ofs:(-8) rax)
+          idivq !%r13 ++
+          movq !%rdx !%r14 ++
+          cmpq (imm 2) !%r11 ++
+          jne "error" ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 2) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Beq ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-16) rax) !%r11 ++
+          movq (ind ~ofs:(-16) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           sete !%al ++
-          movzbq !%al rax
+          movzbq !%al r14 ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Bneq ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-16) rax) !%r11 ++
+          movq (ind ~ofs:(-16) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           setne !%al ++
-          movzbq !%al rax
+          movzbq !%al r14 ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Blt ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-16) rax) !%r11 ++
+          movq (ind ~ofs:(-16) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           setl !%al ++
-          movzbq !%al rax
+          movzbq !%al r14 ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Ble ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-16) rax) !%r11 ++
+          movq (ind ~ofs:(-16) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           setle !%al ++
-          movzbq !%al rax
+          movzbq !%al r14 ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Bgt ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-16) rax) !%r11 ++
+          movq (ind ~ofs:(-16) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           setg !%al ++
-          movzbq !%al rax
+          movzbq !%al r14 ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Bge ->
           compile_expr lhs ++
           pushq !%rax ++
           compile_expr rhs ++
           popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
+          movq (ind ~ofs:(-16) rax) !%r11 ++
+          movq (ind ~ofs:(-16) r10) !%r12 ++
           cmpq !%r11 !%r12 ++
           setge !%al ++
-          movzbq !%al rax
+          movzbq !%al r14 ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq !%r14 (ind ~ofs:(-16) rax)
       | Band ->
+          let false_label = new_label () in
+          let end_label = new_label () in
           compile_expr lhs ++
-          pushq !%rax ++
+          movq (ind ~ofs:(-16) rax) !%rax ++
+          testq !%rax !%rax ++
+          jz false_label ++
           compile_expr rhs ++
-          popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
-          andq !%r11 !%r12 ++
-          movq !%r12 (ind ~ofs:(-8) rax)
+          movq (ind ~ofs:(-16) rax) !%rax ++
+          testq !%rax !%rax ++
+          jz false_label ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq (imm 1) (ind ~ofs:(-16) rax) ++
+          jmp end_label ++
+          label false_label ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq (imm 0) (ind ~ofs:(-16) rax) ++
+          label end_label
       | Bor ->
+          let true_label = new_label () in
+          let end_label = new_label () in
           compile_expr lhs ++
-          pushq !%rax ++
+          movq (ind ~ofs:(-16) rax) !%rax ++
+          testq !%rax !%rax ++
+          jnz true_label ++
           compile_expr rhs ++
-          popq r10 ++
-          movq (ind rax) !%r11 ++
-          movq (ind r10) !%r12 ++
-          orq !%r11 !%r12 ++
-          movq !%r12 (ind ~ofs:(-8) rax)
+          movq (ind ~ofs:(-16) rax) !%rax ++
+          testq !%rax !%rax ++
+          jnz true_label ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq (imm 0) (ind ~ofs:(-16) rax) ++
+          jmp end_label ++
+          label true_label ++
+          movq (imm 2) !%rdi ++
+          call "my_malloc" ++
+          movq (imm 1) (ind ~ofs:(-8) rax) ++
+          movq (imm 1) (ind ~ofs:(-16) rax) ++
+          label end_label
     )
   | TEunop (Uneg, e) -> failwith "Unary operations are not supported in code generation"
   | TEunop (Unot, e) -> failwith "Unary operations are not supported in code generation"
@@ -260,7 +360,7 @@ let rec compile_expr = function
       (match fn.fn_name with
       | "len" ->
           compile_expr (List.hd args) ++
-          movq (ind rax) !%rax
+          movq (ind ~ofs:(-16) rax) !%rax
       | _ ->
         failwith "Function calls are not supported in code generation")
   | TElist elements -> failwith "Lists are not supported in code generation"
@@ -288,8 +388,9 @@ let rec compile_stmt = function
     let print_int = new_label () in
     let print_str = new_label () in
     let print_end = new_label () in
+    let false_label = new_label () in
     compile_expr e ++
-    movq (ind rax) !%r10 ++
+    movq (ind ~ofs:(-8) rax) !%r10 ++
     cmpq (imm 0) !%r10 ++
     je print_none ++
     cmpq (imm 1) !%r10 ++
@@ -300,27 +401,40 @@ let rec compile_stmt = function
     je print_str ++
     cmpq (imm 4) !%r10 ++
     jne "error" ++
+
     label print_none ++
     leaq (lab "none_str") rdi ++
     movq (imm 0) !%rax ++
     call "printf" ++
     jmp print_end ++
+
     label print_bool ++
+    movq (ind ~ofs:(-16) rax) !%rax ++
+    testq !%rax !%rax ++
+    jz false_label ++
     leaq (lab "true_str") rdi ++
     movq (imm 0) !%rax ++
     call "printf" ++
     jmp print_end ++
-    label print_int ++
-    leaq (lab "fmt_int") rdi ++
-    movq (ind ~ofs:(-8) rax) !%rsi ++
+    X86_64.label false_label ++
+    leaq (lab "false_str") rdi ++
     movq (imm 0) !%rax ++
     call "printf" ++
     jmp print_end ++
-    label print_str ++
-    leaq (lab "fmt_str") rdi ++
+
+    label print_int ++
+    leaq (lab "fmt_int") rdi ++
     movq (ind ~ofs:(-16) rax) !%rsi ++
     movq (imm 0) !%rax ++
     call "printf" ++
+    jmp print_end ++
+
+    label print_str ++
+    leaq (lab "fmt_str") rdi ++
+    movq (ind ~ofs:(-24) rax) !%rsi ++
+    movq (imm 0) !%rax ++
+    call "printf" ++
+
     label print_end 
   | TSblock stmts -> List.fold_left (++) nop (List.map compile_stmt stmts)
   | TSfor (v, collection, body) -> failwith "For loops are not supported in code generation"
